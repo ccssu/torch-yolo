@@ -88,10 +88,11 @@ class Detect(nn.Module):
         t = self.anchors[i].dtype
         shape = 1, self.na, ny, nx, 2  # grid shape
         y, x = torch.arange(ny, device=d, dtype=t), torch.arange(nx, device=d, dtype=t)
-        if check_version(torch.__version__, '1.10.0'):  # torch>=1.10.0 meshgrid workaround for torch>=0.7 compatibility
-            yv, xv = torch.meshgrid(y, x, indexing='ij')
-        else:
-            yv, xv = torch.meshgrid(y, x)
+        # if check_version(torch.__version__, '1.10.0'):  # torch>=1.10.0 meshgrid workaround for torch>=0.7 compatibility
+        #     yv, xv = torch.meshgrid(y, x, indexing='ij')
+        # else:
+        yv, xv = torch.meshgrid(y, x)
+
         grid = torch.stack((xv, yv), 2).expand(shape) - 0.5  # add grid offset, i.e. y = 2.0 * x - 0.5
         anchor_grid = (self.anchors[i] * self.stride[i]).view((1, self.na, 1, 1, 2)).expand(shape)
         return grid, anchor_grid
@@ -159,7 +160,7 @@ class Model(nn.Module):
     def _forward_once(self, x, profile=False, visualize=False):
         y, dt = [], []  # outputs
 
-        # my_name = 0
+        my_name = 0
 
         for m in self.model:
             if m.f != -1:  # if not from previous layer
@@ -173,13 +174,14 @@ class Model(nn.Module):
             #     my_path = '/home/fengwen/np_list/torch'+str(my_name)+'.txt'
             #     my_name = my_name + 1
             #     my_len = len(x.cpu().detach().numpy().flatten().tolist())
-            #     # if my_len > 1000000:
-            #     #     np.savetxt(my_path, x.cpu().detach().numpy().flatten()[0:1000000].tolist())
-            #     # else:
-            #     #     np.savetxt(my_path, x.cpu().detach().numpy().flatten().tolist())
+            #     if my_len > 1000000:
+            #         np.savetxt(my_path, x.cpu().detach().numpy().flatten()[0:1000000].tolist())
+            #     else:
+            #         np.savetxt(my_path, x.cpu().detach().numpy().flatten().tolist())
             #     print(x.dtype) #  oneflow.float32
             #     print(str(my_name))
             #     print("=d"*40)
+            
 
             y.append(x if m.i in self.save else None)  # save output
             if visualize:
