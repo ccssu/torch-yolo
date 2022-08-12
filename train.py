@@ -70,14 +70,14 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     (w.parent if evolve else w).mkdir(parents=True, exist_ok=True)  # make dir
     last, best = w / 'last.pt', w / 'best.pt'
 
-    # Hyperparameters
+    # Hyperparameters 加载超参数文件
     if isinstance(hyp, str):
         with open(hyp, errors='ignore') as f:
             hyp = yaml.safe_load(f)  # load hyps dict
     LOGGER.info(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
     opt.hyp = hyp.copy()  # for saving hyps to checkpoints
 
-    # Save run settings
+    # Save run settings 保存运行参数
     if not evolve:
         with open(save_dir / 'hyp.yaml', 'w') as f:
             yaml.safe_dump(hyp, f, sort_keys=False)
@@ -103,7 +103,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     plots = not evolve and not opt.noplots  # create plots
     cuda = device.type != 'cpu'
 
-    init_seeds(1)
+    init_seeds(0, deterministic=True)
 
     with torch_distributed_zero_first(LOCAL_RANK):
         data_dict = data_dict or check_dataset(data)  # check if None
@@ -113,9 +113,25 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     assert len(names) == nc, f'{len(names)} names found for nc={nc} dataset in {data}'  # check
     is_coco = isinstance(val_path, str) and val_path.endswith('coco/val2017.txt')  # COCO dataset
 
+
+    # # -----------------------------------------------------------------------------------------------#
+    # # oneflow_wight to torch_wight
+    # import oneflow
+    # ckpt = oneflow.load('/home/fengwen/weights/yolov5s', map_location='cpu')
+    # model = Model(cfg or ckpt['model'].yaml, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
+    # # csd = ckpt['model'].float().state_dict()  # checkpoint state_dict as FP32
+    # # csd = intersect_dicts(csd, model.state_dict(), exclude=exclude)  # intersect
+    # model.load_state_dict(ckpt, strict=False)  # load
+    # ckpt['model'] = model
+    # torch.save(ckpt,'/home/fengwen/loss_materials/temp/torch.pt')
+    # print("=d"*50)
+    # exit(0)
+
+    # # ---------------------------------------------------------------------------------------------------#
+    
     # Model
-    check_suffix(weights, '.pt')  # check weights
-    pretrained = weights.endswith('.pt')
+    check_suffix(weights, '.pt')  # check weights 检测模型权重
+    pretrained = weights.endswith('.pt')  # True  使用权重
     if pretrained:
         with torch_distributed_zero_first(LOCAL_RANK):
             weights = attempt_download(weights)  # download if not found locally
@@ -155,14 +171,14 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     hyp['weight_decay'] *= batch_size * accumulate / nbs  # scale weight_decay
     optimizer = smart_optimizer(model, opt.optimizer, hyp['lr0'], hyp['momentum'], hyp['weight_decay'])
 
-    # Scheduler
+    # Scheduler 创建深度学习优化器
     if opt.cos_lr:
         lf = one_cycle(1, hyp['lrf'], epochs)  # cosine 1->hyp['lrf']
     else:
         lf = lambda x: (1 - x / epochs) * (1.0 - hyp['lrf']) + hyp['lrf']  # linear
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)  # plot_lr_scheduler(optimizer, scheduler, epochs)
 
-    # EMA
+    # EMA 指数移动平均
     ema = ModelEMA(model) if RANK in {-1, 0} else None
 
     # Resume
