@@ -392,7 +392,7 @@ def check_requirements(requirements=ROOT / 'requirements.txt', exclude=(), insta
             f"{prefix} ⚠️ {colorstr('bold', 'Restart runtime or rerun command for updates to take effect')}\n"
         LOGGER.info(s)
 
-
+# 检查图像尺寸是否是s(默认32)的整数倍;不是则调整图像尺寸
 def check_img_size(imgsz, s=32, floor=0):
     # Verify image size is a multiple of stride s in each dimension
     if isinstance(imgsz, int):  # integer i.e. img_size=640

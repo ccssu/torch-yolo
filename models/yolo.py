@@ -35,7 +35,7 @@ try:
 except ImportError:
     thop = None
 
-
+# 网路模型
 class Detect(nn.Module):
     stride = None  # strides computed during build
     onnx_dynamic = False  # ONNX export parameter
@@ -50,6 +50,12 @@ class Detect(nn.Module):
         self.grid = [torch.zeros(1)] * self.nl  # init grid
         self.anchor_grid = [torch.zeros(1)] * self.nl  # init anchor grid
         self.register_buffer('anchors', torch.tensor(anchors).float().view(self.nl, -1, 2))  # shape(nl,na,2)
+        # 模型中需要保存下来的参数包括两种:一种是反向传播需要被optimizer更新的，称之为 parameter;
+        # 一种是反向传播不需要被optimizer更新，称之为 buffer。
+        # 第二种参数我们需要创建tensor，然后将tensor通过register_buffer()进行注册，
+        # 可以通model.buffers()返回，注册完后参数也会自动保存到OrderDict中去。
+        # 注意: buffer的更新在forward中，optim.step只能更新nn.parameter类型的参数
+
         self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
         self.inplace = inplace  # use inplace ops (e.g. slice assignment)
 
@@ -63,7 +69,6 @@ class Detect(nn.Module):
             if not self.training:  # inference
                 if self.onnx_dynamic or self.grid[i].shape[2:4] != x[i].shape[2:4]:
                     self.grid[i], self.anchor_grid[i] = self._make_grid(nx, ny, i)
-
                 y = x[i].sigmoid()
                 if self.inplace:
                     y[..., 0:2] = (y[..., 0:2] * 2 + self.grid[i]) * self.stride[i]  # xy
@@ -73,11 +78,12 @@ class Detect(nn.Module):
                     xy = (xy * 2 + self.grid[i]) * self.stride[i]  # xy
                     wh = (wh * 2) ** 2 * self.anchor_grid[i]  # wh
                     y = torch.cat((xy, wh, conf), 4)
-                z.append(y.view(bs, -1, self.no))
+                z.append(y.view(bs, -1, self.no)) # 预测框坐标信息
 
-        return x if self.training else (torch.cat(z, 1),) if self.export else (torch.cat(z, 1), x)
+        return x if self.training else (torch.cat(z, 1),) if self.export else (torch.cat(z, 1), x) # 预测坐标，obj,cls 
 
     def _make_grid(self, nx=20, ny=20, i=0):
+        # 划分为单元网格
         d = self.anchors[i].device
         t = self.anchors[i].dtype
         shape = 1, self.na, ny, nx, 2  # grid shape
@@ -90,7 +96,7 @@ class Detect(nn.Module):
         anchor_grid = (self.anchors[i] * self.stride[i]).view((1, self.na, 1, 1, 2)).expand(shape)
         return grid, anchor_grid
 
-
+# 网络模型类
 class Model(nn.Module):
     # YOLOv5 model
     def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None, anchors=None):  # model, input channels, number of classes
@@ -100,7 +106,7 @@ class Model(nn.Module):
         else:  # is *.yaml
             import yaml  # for torch hub
             self.yaml_file = Path(cfg).name
-            with open(cfg, encoding='ascii', errors='ignore') as f:
+            with open(cfg, encoding='ascii', errors='ignore') as f:# 获取字典
                 self.yaml = yaml.safe_load(f)  # model dict
 
         # Define model
@@ -121,10 +127,10 @@ class Model(nn.Module):
             s = 256  # 2x min stride
             m.inplace = self.inplace
             m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
-            check_anchor_order(m)  # must be in pixel-space (not grid-space)
-            m.anchors /= m.stride.view(-1, 1, 1)
+            check_anchor_order(m)  # must be in pixel-space (not grid-space) 检查anchor顺序和stride顺序是否一致
+            m.anchors /= m.stride.view(-1, 1, 1) 
             self.stride = m.stride
-            self._initialize_biases()  # only run once
+            self._initialize_biases()  # only run once 初始化偏置only run once
 
         # Init weights, biases
         initialize_weights(self)
@@ -136,7 +142,7 @@ class Model(nn.Module):
             return self._forward_augment(x)  # augmented inference, None
         return self._forward_once(x, profile, visualize)  # single-scale inference, train
 
-    def _forward_augment(self, x):
+    def _forward_augment(self, x): # TTA 加强( --augment)
         img_size = x.shape[-2:]  # height, width
         s = [1, 0.83, 0.67]  # scales
         f = [None, 3, None]  # flips (2-ud, 3-lr)
@@ -152,12 +158,29 @@ class Model(nn.Module):
 
     def _forward_once(self, x, profile=False, visualize=False):
         y, dt = [], []  # outputs
+
+        # my_name = 0
+
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
             if profile:
                 self._profile_one_layer(m, x, dt)
-            x = m(x)  # run
+                
+            x = m(x)  # run 执行网路组件处理
+            
+            # if torch.is_tensor(x):
+            #     my_path = '/home/fengwen/np_list/torch'+str(my_name)+'.txt'
+            #     my_name = my_name + 1
+            #     my_len = len(x.cpu().detach().numpy().flatten().tolist())
+            #     # if my_len > 1000000:
+            #     #     np.savetxt(my_path, x.cpu().detach().numpy().flatten()[0:1000000].tolist())
+            #     # else:
+            #     #     np.savetxt(my_path, x.cpu().detach().numpy().flatten().tolist())
+            #     print(x.dtype) #  oneflow.float32
+            #     print(str(my_name))
+            #     print("=d"*40)
+
             y.append(x if m.i in self.save else None)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
@@ -250,9 +273,11 @@ class Model(nn.Module):
                 m.anchor_grid = list(map(fn, m.anchor_grid))
         return self
 
-
+# 解析网络模型配置文件并构建模型
 def parse_model(d, ch):  # model_dict, input_channels(3)
     LOGGER.info(f"\n{'':>3}{'from':>18}{'n':>3}{'params':>10}  {'module':<40}{'arguments':<30}")
+    # 将模型结构的depth_multiple,width_multiple提取出，赋值给gd.(yoLov5s: .0.33). ..qw. ..(volov5s:0.50)
+
     anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
     na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
     no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
@@ -264,7 +289,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             with contextlib.suppress(NameError):
                 args[j] = eval(a) if isinstance(a, str) else a  # eval strings
 
-        n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain
+        n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain 控制深度
         if m in (Conv, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, MixConv2d, Focus, CrossConv,
                  BottleneckCSP, C3, C3TR, C3SPP, C3Ghost, nn.ConvTranspose2d, DWConvTranspose2d, C3x):
             c1, c2 = ch[f], args[0]
@@ -289,7 +314,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             c2 = ch[f] // args[0] ** 2
         else:
             c2 = ch[f]
-
+        # *args表示接收任意个数量的参数，调用时会将实际参数打包为一个元组传入实参
         m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
         t = str(m)[8:-2].replace('__main__.', '')  # module type
         np = sum(x.numel() for x in m_.parameters())  # number params
@@ -304,6 +329,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
 
 if __name__ == '__main__':
+    # 建立参数解析组件
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, default='yolov5s.yaml', help='model.yaml')
     parser.add_argument('--batch-size', type=int, default=1, help='total batch size for all GPUs')

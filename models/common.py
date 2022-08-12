@@ -1,6 +1,7 @@
 # YOLOv5 🚀 by Ultralytics, GPL-3.0 license
 """
 Common modules
+网路组件相关代码
 """
 
 import json
@@ -27,7 +28,7 @@ from utils.general import (LOGGER, check_requirements, check_suffix, check_versi
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import copy_attr, time_sync
 
-
+# 为same卷积或same池化自动扩充
 def autopad(k, p=None):  # kernel, padding
     # Pad to 'same'
     if p is None:
@@ -43,13 +44,13 @@ class Conv(nn.Module):
         self.bn = nn.BatchNorm2d(c2)
         self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
 
-    def forward(self, x):
+    def forward(self, x): # 网络的执行顺序是根据forward函数来决定的
         return self.act(self.bn(self.conv(x)))
 
     def forward_fuse(self, x):
         return self.act(self.conv(x))
 
-
+# 深度可分离卷积
 class DWConv(Conv):
     # Depth-wise convolution class
     def __init__(self, c1, c2, k=1, s=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
@@ -108,6 +109,7 @@ class Bottleneck(nn.Module):
         self.add = shortcut and c1 == c2
 
     def forward(self, x):
+        # 根据self.add的值确定是否有shortcut
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
 
 
@@ -122,6 +124,7 @@ class BottleneckCSP(nn.Module):
         self.cv4 = Conv(2 * c_, c2, 1, 1)
         self.bn = nn.BatchNorm2d(2 * c_)  # applied to cat(cv2, cv3)
         self.act = nn.SiLU()
+        # *操作符可以把一个list拆开成一个个独立的元素
         self.m = nn.Sequential(*(Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)))
 
     def forward(self, x):
@@ -181,7 +184,7 @@ class C3SPP(C3):
         c_ = int(c2 * e)
         self.m = SPP(c_, c_, k)
 
-
+# 空间金字塔池化
 class C3Ghost(C3):
     # C3 module with GhostBottleneck()
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
@@ -223,7 +226,7 @@ class SPPF(nn.Module):
             y2 = self.m(y1)
             return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
 
-
+# Focus:把宽度w和高度h的信息整合到c空间中
 class Focus(nn.Module):
     # Focus wh information into c-space
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
@@ -749,13 +752,14 @@ class Detections:
         return ''
 
 
+# 用于第二级分类
 class Classify(nn.Module):
     # Classification head, i.e. x(b,c1,20,20) to x(b,c2)
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1):  # ch_in, ch_out, kernel, stride, padding, groups
         super().__init__()
         self.aap = nn.AdaptiveAvgPool2d(1)  # to x(b,c1,1,1)
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g)  # to x(b,c2,1,1)
-        self.flat = nn.Flatten()
+        self.flat = nn.Flatten()  # x.view(x.size(0)，-1)
 
     def forward(self, x):
         z = torch.cat([self.aap(y) for y in (x if isinstance(x, list) else [x])], 1)  # cat if list

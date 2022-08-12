@@ -30,14 +30,14 @@ from tqdm import tqdm
 from utils.augmentations import Albumentations, augment_hsv, copy_paste, letterbox, mixup, random_perspective
 from utils.general import (DATASETS_DIR, LOGGER, NUM_THREADS, check_dataset, check_requirements, check_yaml, clean_str,
                            cv2, is_colab, is_kaggle, segments2boxes, xyn2xy, xywh2xyxy, xywhn2xyxy, xyxy2xywhn)
-from utils.torch_utils import torch_distributed_zero_first
+# from utils.torch_utils import torch_distributed_zero_first
 
 # Parameters
 HELP_URL = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
 IMG_FORMATS = 'bmp', 'dng', 'jpeg', 'jpg', 'mpo', 'png', 'tif', 'tiff', 'webp'  # include image suffixes
 VID_FORMATS = 'asf', 'avi', 'gif', 'm4v', 'mkv', 'mov', 'mp4', 'mpeg', 'mpg', 'ts', 'wmv'  # include video suffixes
 BAR_FORMAT = '{l_bar}{bar:10}{r_bar}{bar:-10b}'  # tqdm bar format
-LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html
+LOCAL_RANK =  int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html
 
 # Get orientation exif tag
 for orientation in ExifTags.TAGS.keys():
@@ -115,20 +115,20 @@ def create_dataloader(path,
     if rect and shuffle:
         LOGGER.warning('WARNING: --rect is incompatible with DataLoader shuffle, setting shuffle=False')
         shuffle = False
-    with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
-        dataset = LoadImagesAndLabels(
-            path,
-            imgsz,
-            batch_size,
-            augment=augment,  # augmentation
-            hyp=hyp,  # hyperparameters
-            rect=rect,  # rectangular batches
-            cache_images=cache,
-            single_cls=single_cls,
-            stride=int(stride),
-            pad=pad,
-            image_weights=image_weights,
-            prefix=prefix)
+    # with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
+    dataset = LoadImagesAndLabels(
+        path,
+        imgsz,
+        batch_size,
+        augment=augment,  # augmentation
+        hyp=hyp,  # hyperparameters
+        rect=rect,  # rectangular batches
+        cache_images=cache,
+        single_cls=single_cls,
+        stride=int(stride),
+        pad=pad,
+        image_weights=image_weights,
+        prefix=prefix)
 
     batch_size = min(batch_size, len(dataset))
     nd = torch.cuda.device_count()  # number of CUDA devices
@@ -688,11 +688,14 @@ class LoadImagesAndLabels(Dataset):
         if not f.exists():
             np.save(f.as_posix(), cv2.imread(self.im_files[i]))
 
+    # 生成一个mosaic增强的图片
     def load_mosaic(self, index):
         # YOLOv5 4-mosaic loader. Loads 1 image + 3 random images into a 4-image mosaic
         labels4, segments4 = [], []
         s = self.img_size
+        # 随机取mosaic中心点
         yc, xc = (int(random.uniform(-x, 2 * s + x)) for x in self.mosaic_border)  # mosaic center x, y
+        # 随机取其它三张图片的索引
         indices = [index] + random.choices(self.indices, k=3)  # 3 additional image indices
         random.shuffle(indices)
         for i, index in enumerate(indices):

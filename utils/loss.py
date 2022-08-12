@@ -210,11 +210,16 @@ class ComputeLoss:
                 # Offsets
                 gxy = t[:, 2:4]  # grid xy
                 gxi = gain[[2, 3]] - gxy  # inverse
-                j, k = ((gxy % 1 < g) & (gxy > 1)).T
-                l, m = ((gxi % 1 < g) & (gxi > 1)).T
-                j = torch.stack((torch.ones_like(j), j, k, l, m))
-                t = t.repeat((5, 1, 1))[j]
-                offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
+                if ((gxy % 1 < g) & (gxy > 1)).shape == torch.zeros(0, 2).shape:
+                    j = torch.zeros(5,0,dtype=gxi.dtype)
+                    t = torch.zeros(0,7,dtype=gxi.dtype)
+                    offsets = torch.zeros(0,2,dtype=gxi.dtype)
+                else:
+                    j, k = ((gxy % 1 < g) & (gxy > 1)).T
+                    l, m = ((gxi % 1 < g) & (gxi > 1)).T
+                    j = torch.stack((torch.ones_like(j), j, k, l, m))
+                    t = t.repeat((5, 1, 1))[j]
+                    offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
             else:
                 t = targets[0]
                 offsets = 0
