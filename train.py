@@ -77,12 +77,12 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     LOGGER.info(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
     opt.hyp = hyp.copy()  # for saving hyps to checkpoints
 
-    # Save run settings
-    if not evolve:
-        with open(save_dir / 'hyp.yaml', 'w') as f:
-            yaml.safe_dump(hyp, f, sort_keys=False)
-        with open(save_dir / 'opt.yaml', 'w') as f:
-            yaml.safe_dump(vars(opt), f, sort_keys=False)
+    # # Save run settings
+    # if not evolve:
+    #     with open(save_dir / 'hyp.yaml', 'w') as f:
+    #         yaml.safe_dump(hyp, f, sort_keys=False)
+    #     with open(save_dir / 'opt.yaml', 'w') as f:
+    #         yaml.safe_dump(vars(opt), f, sort_keys=False)
 
     # Loggers
     data_dict = None
@@ -103,7 +103,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     plots = not evolve and not opt.noplots  # create plots
     cuda = device.type != 'cpu'
 
-    init_seeds(1)
+    init_seeds(1,deterministic=True)
 
     with torch_distributed_zero_first(LOCAL_RANK):
         data_dict = data_dict or check_dataset(data)  # check if None
@@ -353,19 +353,17 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             callbacks.run('on_train_epoch_end', epoch=epoch)
             ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'names', 'stride', 'class_weights'])
             final_epoch = (epoch + 1 == epochs) or stopper.possible_stop
-            noval = True
 
             if not noval or final_epoch:  # Calculate mAP
-                exit(0) 
                 results, maps, _ = val.run(data_dict,
                                            batch_size=batch_size // WORLD_SIZE * 2,
                                            imgsz=imgsz,
-                                           half=amp,
+                                           half=False,# amp
                                            model=ema.ema,
                                            single_cls=single_cls,
                                            dataloader=val_loader,
                                            save_dir=save_dir,
-                                           plots=False,
+                                           plots=plots,
                                            callbacks=callbacks,
                                            compute_loss=compute_loss)
 
@@ -399,7 +397,6 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 del ckpt
                 callbacks.run('on_model_save', last, epoch, final_epoch, best_fitness, fi)
         
-        print('=0'*50)
 
         # EarlyStopping
         if RANK != -1:  # if DDP training
@@ -414,7 +411,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     # end training -----------------------------------------------------------------------------------------------------
     if RANK in {-1, 0}:
         LOGGER.info(f'\n{epoch - start_epoch + 1} epochs completed in {(time.time() - t0) / 3600:.3f} hours.')
-        exit(0)
+        
         for f in last, best:
             if f.exists():
                 strip_optimizer(f)  # strip optimizers
