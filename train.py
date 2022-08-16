@@ -213,7 +213,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                                               image_weights=opt.image_weights,
                                               quad=opt.quad,
                                               prefix=colorstr('train: '),
-                                              shuffle=False)
+                                              shuffle=False) # shuffle = True 在进行训练周期后是否要对数据进行打乱，目的降低模型拟合性
     labels = np.concatenate(dataset.labels, 0)
     mlc = int(labels[:, 0].max())  # max label class
     assert mlc < nc, f'Label class {mlc} exceeds nc={nc} in {data}. Possible class labels are 0-{nc - 1}'

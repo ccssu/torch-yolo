@@ -1,6 +1,7 @@
 # YOLOv5 🚀 by Ultralytics, GPL-3.0 license
 """
 Dataloaders and dataset utils
+官方文档： https://pytorch.org/tutorials/beginner/basics/data_tutorial.html
 """
 
 import contextlib
@@ -405,7 +406,12 @@ def img2label_paths(img_paths):
     return [sb.join(x.rsplit(sa, 1)).rsplit('.', 1)[0] + '.txt' for x in img_paths]
 
 
-class LoadImagesAndLabels(Dataset):
+#-----------------------------------------------------------------------------------------------------#
+# 自定义的数据加载类
+#
+#-----------------------------------------------------------------------------------------------------#
+
+class LoadImagesAndLabels(Dataset): 
     # YOLOv5 train_loader/val_loader, loads images and labels for training and validation
     cache_version = 0.6  # dataset labels *.cache version
     rand_interp_methods = [cv2.INTER_NEAREST, cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_LANCZOS4]
@@ -582,7 +588,7 @@ class LoadImagesAndLabels(Dataset):
             LOGGER.warning(f'{prefix}WARNING: Cache directory {path.parent} is not writeable: {e}')  # not writeable
         return x
 
-    def __len__(self):
+    def __len__(self): # 返回长度
         return len(self.im_files)
 
     # def __iter__(self):
@@ -590,7 +596,9 @@ class LoadImagesAndLabels(Dataset):
     #     print('ran dataset iter')
     #     #self.shuffled_vector = np.random.permutation(self.nF) if self.augment else np.arange(self.nF)
     #     return self
-
+    
+    
+    # 根据索引得到数据
     def __getitem__(self, index):
         index = self.indices[index]  # linear, shuffled, or image_weights
 
