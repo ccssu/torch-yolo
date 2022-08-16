@@ -130,6 +130,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         model = Model(cfg, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
   
     # amp = check_amp(model)  # check AMP
+    amp = False
 
     # Freeze
     freeze = [f'model.{x}.' for x in (freeze if len(freeze) > 1 else range(freeze[0]))]  # layers to freeze
@@ -177,10 +178,10 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     #                    'See Multi-GPU Tutorial at https://github.com/ultralytics/yolov5/issues/475 to get started.')
     #     model = torch.nn.DataParallel(model)
 
-    # # SyncBatchNorm
-    # if opt.sync_bn and cuda and RANK != -1:
-    #     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).to(device)
-    #     LOGGER.info('Using SyncBatchNorm()')
+    # SyncBatchNorm
+    if opt.sync_bn and cuda and RANK != -1:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).to(device)
+        LOGGER.info('Using SyncBatchNorm()')
 
     # Trainloader
     train_loader, dataset = create_dataloader(train_path,
@@ -218,8 +219,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                                        prefix=colorstr('val: '))[0]
 
         if not resume:
-            # if plots:
-            #     plot_labels(labels, names, save_dir)
+            if plots:
+                plot_labels(labels, names, save_dir)
 
             # Anchors
             if not opt.noautoanchor:
@@ -287,7 +288,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
             callbacks.run('on_train_batch_start')
             ni = i + nb * epoch  # number integrated batches (since train start)
-            imgs = imgs.to(device, non_blocking=True).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0
+            imgs = imgs.to(device).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0
 
             # Warmup
             if ni <= nw:
@@ -300,24 +301,18 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     if 'momentum' in x:
                         x['momentum'] = np.interp(ni, xi, [hyp['warmup_momentum'], hyp['momentum']])
 
-            # # Multi-scale
-            # if opt.multi_scale:
-            #     sz = random.randrange(imgsz * 0.5, imgsz * 1.5 + gs) // gs * gs  # size
-            #     sf = sz / max(imgs.shape[2:])  # scale factor
-            #     if sf != 1:
-            #         ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to gs-multiple)
-            #         imgs = nn.functional.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
+            # Multi-scale
+            if opt.multi_scale:
+                sz = random.randrange(imgsz * 0.5, imgsz * 1.5 + gs) // gs * gs  # size
+                sf = sz / max(imgs.shape[2:])  # scale factor
+                if sf != 1:
+                    ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to gs-multiple)
+                    imgs = nn.functional.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
             # Forward
             # with torch.cuda.amp.autocast(amp):
-            pred = model(imgs,record=True)  # forward
+            pred = model(imgs)  # forward
 
-
-            print('shape'*50)
-            # print(model.state_dict()['model.0.conv.weight'].cpu().detach().numpy().shape)
-            print(model.state_dict().keys())
-            # np.savetxt('/home/fengwen/compare_model/torch-yolo.txt',model.state_dict()['model.0.conv.weight'].cpu().detach().numpy().flatten().tolist())
-            exit(0)
 
             loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
             if RANK != -1:
@@ -366,7 +361,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 results, maps, _ = val.run(data_dict,
                                            batch_size=batch_size // WORLD_SIZE * 2,
                                            imgsz=imgsz,
-                                           half=False,# amp
+                                           half=amp,# amp
                                            model=ema.ema,
                                            single_cls=single_cls,
                                            dataloader=val_loader,
