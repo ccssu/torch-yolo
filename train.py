@@ -310,7 +310,15 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
 
             # Forward
             # with torch.cuda.amp.autocast(amp):
-            pred = model(imgs)  # forward
+            pred = model(imgs,record=True)  # forward
+
+
+            print('shape'*50)
+            # print(model.state_dict()['model.0.conv.weight'].cpu().detach().numpy().shape)
+            print(model.state_dict().keys())
+            # np.savetxt('/home/fengwen/compare_model/torch-yolo.txt',model.state_dict()['model.0.conv.weight'].cpu().detach().numpy().flatten().tolist())
+            exit(0)
+
             loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
             if RANK != -1:
                 loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
@@ -531,6 +539,9 @@ def main(opt, callbacks=Callbacks()):
         torch.cuda.set_device(LOCAL_RANK)
         device = torch.device('cuda', LOCAL_RANK)
         dist.init_process_group(backend="nccl" if dist.is_nccl_available() else "gloo")
+
+    
+
 
     # Train
     if not opt.evolve:
