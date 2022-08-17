@@ -77,12 +77,12 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     LOGGER.info(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
     opt.hyp = hyp.copy()  # for saving hyps to checkpoints
 
-    # Save run settings 保存运行参数
-    if not evolve:
-        with open(save_dir / 'hyp.yaml', 'w') as f:
-            yaml.safe_dump(hyp, f, sort_keys=False)
-        with open(save_dir / 'opt.yaml', 'w') as f:
-            yaml.safe_dump(vars(opt), f, sort_keys=False)
+    # # Save run settings保存运行参数
+    # if not evolve:
+    #     with open(save_dir / 'hyp.yaml', 'w') as f:
+    #         yaml.safe_dump(hyp, f, sort_keys=False)
+    #     with open(save_dir / 'opt.yaml', 'w') as f:
+    #         yaml.safe_dump(vars(opt), f, sort_keys=False)
 
     # Loggers
     data_dict = None
@@ -103,7 +103,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     plots = not evolve and not opt.noplots  # create plots
     cuda = device.type != 'cpu'
 
-    init_seeds(0, deterministic=True)
+
+    init_seeds(1,deterministic=True)
 
     with torch_distributed_zero_first(LOCAL_RANK):
         data_dict = data_dict or check_dataset(data)  # check if None
@@ -146,6 +147,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         model = Model(cfg, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
   
     # amp = check_amp(model)  # check AMP
+    amp = False
 
     # Freeze
     freeze = [f'model.{x}.' for x in (freeze if len(freeze) > 1 else range(freeze[0]))]  # layers to freeze
@@ -193,10 +195,10 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     #                    'See Multi-GPU Tutorial at https://github.com/ultralytics/yolov5/issues/475 to get started.')
     #     model = torch.nn.DataParallel(model)
 
-    # # SyncBatchNorm
-    # if opt.sync_bn and cuda and RANK != -1:
-    #     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).to(device)
-    #     LOGGER.info('Using SyncBatchNorm()')
+    # SyncBatchNorm
+    if opt.sync_bn and cuda and RANK != -1:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).to(device)
+        LOGGER.info('Using SyncBatchNorm()')
 
     # Trainloader
     train_loader, dataset = create_dataloader(train_path,
@@ -234,8 +236,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                                        prefix=colorstr('val: '))[0]
 
         if not resume:
-            # if plots:
-            #     plot_labels(labels, names, save_dir)
+            if plots:
+                plot_labels(labels, names, save_dir)
 
             # Anchors
             if not opt.noautoanchor:
@@ -303,7 +305,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
             callbacks.run('on_train_batch_start')
             ni = i + nb * epoch  # number integrated batches (since train start)
-            imgs = imgs.to(device, non_blocking=True).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0
+            imgs = imgs.to(device).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0
 
             # Warmup
             if ni <= nw:
@@ -316,17 +318,19 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     if 'momentum' in x:
                         x['momentum'] = np.interp(ni, xi, [hyp['warmup_momentum'], hyp['momentum']])
 
-            # # Multi-scale
-            # if opt.multi_scale:
-            #     sz = random.randrange(imgsz * 0.5, imgsz * 1.5 + gs) // gs * gs  # size
-            #     sf = sz / max(imgs.shape[2:])  # scale factor
-            #     if sf != 1:
-            #         ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to gs-multiple)
-            #         imgs = nn.functional.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
+            # Multi-scale
+            if opt.multi_scale:
+                sz = random.randrange(imgsz * 0.5, imgsz * 1.5 + gs) // gs * gs  # size
+                sf = sz / max(imgs.shape[2:])  # scale factor
+                if sf != 1:
+                    ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to gs-multiple)
+                    imgs = nn.functional.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
             # Forward
             # with torch.cuda.amp.autocast(amp):
             pred = model(imgs)  # forward
+
+
             loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
             if RANK != -1:
                 loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
@@ -369,19 +373,17 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             callbacks.run('on_train_epoch_end', epoch=epoch)
             ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'names', 'stride', 'class_weights'])
             final_epoch = (epoch + 1 == epochs) or stopper.possible_stop
-            noval = True
 
             if not noval or final_epoch:  # Calculate mAP
-                exit(0) 
                 results, maps, _ = val.run(data_dict,
                                            batch_size=batch_size // WORLD_SIZE * 2,
                                            imgsz=imgsz,
-                                           half=amp,
+                                           half=amp,# amp
                                            model=ema.ema,
                                            single_cls=single_cls,
                                            dataloader=val_loader,
                                            save_dir=save_dir,
-                                           plots=False,
+                                           plots=plots,
                                            callbacks=callbacks,
                                            compute_loss=compute_loss)
 
@@ -415,7 +417,6 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 del ckpt
                 callbacks.run('on_model_save', last, epoch, final_epoch, best_fitness, fi)
         
-        print('=0'*50)
 
         # EarlyStopping
         if RANK != -1:  # if DDP training
@@ -430,7 +431,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     # end training -----------------------------------------------------------------------------------------------------
     if RANK in {-1, 0}:
         LOGGER.info(f'\n{epoch - start_epoch + 1} epochs completed in {(time.time() - t0) / 3600:.3f} hours.')
-        exit(0)
+        
         for f in last, best:
             if f.exists():
                 strip_optimizer(f)  # strip optimizers
@@ -550,6 +551,9 @@ def main(opt, callbacks=Callbacks()):
         torch.cuda.set_device(LOCAL_RANK)
         device = torch.device('cuda', LOCAL_RANK)
         dist.init_process_group(backend="nccl" if dist.is_nccl_available() else "gloo")
+
+    
+
 
     # Train
     if not opt.evolve:

@@ -43,12 +43,13 @@ class Conv(nn.Module):
         self.bn = nn.BatchNorm2d(c2)
         self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
 
-    def forward(self, x):
+    def forward(self, x,record=False):
         return self.act(self.bn(self.conv(x)))
 
     def forward_fuse(self, x):
         return self.act(self.conv(x))
 
+# BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
 
 class DWConv(Conv):
     # Depth-wise convolution class
