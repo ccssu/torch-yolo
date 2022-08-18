@@ -512,7 +512,7 @@ class LoadImagesAndLabels(Dataset):
         if self.rect:
             # Sort by aspect ratio
             s = self.shapes  # wh
-            ar = s[:, 1] / s[:, 0]  # aspect ratio
+            ar = s[:, 1] / s[:, 0]  # aspect ratio 高：宽
             irect = ar.argsort()
             self.im_files = [self.im_files[i] for i in irect]
             self.label_files = [self.label_files[i] for i in irect]
@@ -604,7 +604,7 @@ class LoadImagesAndLabels(Dataset):
 
         hyp = self.hyp
         mosaic = self.mosaic and random.random() < hyp['mosaic']
-        if mosaic:
+        if mosaic: # 视图拼接
             # Load mosaic
             img, labels = self.load_mosaic(index)
             shapes = None
