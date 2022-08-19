@@ -5,14 +5,15 @@ PyTorch utils
 
 import math
 import os
-import platform
-import subprocess
-import time
+import platform   # 提供获取操作系统相关信息的模块
+import subprocess # 子进程定义及操作的模块
+import time    # 时间模块 更底层
 import warnings
 from contextlib import contextmanager
-from copy import deepcopy
-from pathlib import Path
+from copy import deepcopy  # 实现深度复制的模块
+from pathlib import Path   # Path将str转换为Path对象 使字符串路径易于操作的模块
 
+# 以下是一些基本的torch相关的类
 import torch
 import torch.distributed as dist
 import torch.nn as nn
@@ -26,9 +27,9 @@ RANK = int(os.getenv('RANK', -1))
 WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
 
 try:
-    import thop  # for FLOPs computation
+    import thop  # for FLOPs computation # 用于Pytorch模型的FLOPS计算工具模块
 except ImportError:
-    thop = None
+    thop = None 
 
 # Suppress PyTorch warnings
 warnings.filterwarnings('ignore', message='User provided device_type of \'cuda\', but CUDA is not available. Disabling')
@@ -47,11 +48,23 @@ def smart_DDP(model):
 
 @contextmanager
 def torch_distributed_zero_first(local_rank: int):
+    """train.py
+    用于处理模型进行分布式训练时同步问题
+    基于torch.distributed.barrier()函数的上下文管理器，为了完成数据的正常同步操作（yolov5中拥有大量的多线程并行操作）
+    Decorator to make all processes in distributed training wait for each local_master to do something.
+    :params local_rank: 代表当前进程号  0代表主进程  1、2、3代表子进程
+    """
     # Decorator to make all processes in distributed training wait for each local_master to do something
     if local_rank not in [-1, 0]:
+        # 如果执行create_dataloader()函数的进程不是主进程，即rank不等于0或者-1，
+        # 上下文管理器会执行相应的torch.distributed.barrier()，设置一个阻塞栅栏，
+        # 让此进程处于等待状态，等待所有进程到达栅栏处（包括主进程数据处理完毕）；
         dist.barrier(device_ids=[local_rank])
     yield
     if local_rank == 0:
+        # 如果执行create_dataloader()函数的进程是主进程，其会直接去读取数据并处理，
+        # 然后其处理结束之后会接着遇到torch.distributed.barrier()，
+        # 此时，所有进程都到达了当前的栅栏处，这样所有进程就达到了同步，并同时得到释放。
         dist.barrier(device_ids=[0])
 
 
@@ -64,7 +77,7 @@ def device_count():
     except Exception:
         return 0
 
-
+# 完成自动选择系统设备的操作，在select_device函数中会调用git_describe函数和date_modified函数。
 def select_device(device='', batch_size=0, newline=True):
     # device = None or 'cpu' or 0 or '0' or '0,1,2,3'
     s = f'YOLOv5 🚀 {git_describe() or file_date()} Python-{platform.python_version()} torch-{torch.__version__} '
@@ -107,7 +120,7 @@ def time_sync():
         torch.cuda.synchronize()
     return time.time()
 
-
+# 主要用于输出模型的一些信息，如所有层数量, 模型总参数量等。
 def profile(input, ops, n=10, device=None):
     # YOLOv5 speed/memory/FLOPs profiler
     #
@@ -159,17 +172,17 @@ def profile(input, ops, n=10, device=None):
             torch.cuda.empty_cache()
     return results
 
-
+# 用于判断模型是否支持并行  Returns True if model is of type DP or DDP
 def is_parallel(model):
     # Returns True if model is of type DP or DDP
     return type(model) in (nn.parallel.DataParallel, nn.parallel.DistributedDataParallel)
 
-
+# 判断单卡还是多卡(能否并行) 多卡返回model.module 单卡返回model
 def de_parallel(model):
     # De-parallelize a model: returns single-GPU model if model is of type DP or DDP
     return model.module if is_parallel(model) else model
 
-
+# 函数是用来初始化模型权重的，会在yolo.py的Model类中的init函数被调用，如下：
 def initialize_weights(model):
     for m in model.modules():
         t = type(m)
@@ -186,7 +199,7 @@ def find_modules(model, mclass=nn.Conv2d):
     # Finds layer indices matching module class 'mclass'
     return [i for i, m in enumerate(model.module_list) if isinstance(m, mclass)]
 
-
+# 矩阵的行压缩存储
 def sparsity(model):
     # Return global model sparsity
     a, b = 0, 0
@@ -206,7 +219,7 @@ def prune(model, amount=0.3):
             prune.remove(m, 'weight')  # make permanent
     print(' %.3g global sparsity' % sparsity(model))
 
-
+# 函数增强
 def fuse_conv_and_bn(conv, bn):
     # Fuse Conv2d() and BatchNorm2d() layers https://tehnokv.com/posts/fusing-batchnorm-and-conv/
     fusedconv = nn.Conv2d(conv.in_channels,
@@ -229,7 +242,7 @@ def fuse_conv_and_bn(conv, bn):
 
     return fusedconv
 
-
+# 模型的信息
 def model_info(model, verbose=False, img_size=640):
     # Model information. img_size may be int or list, i.e. img_size=640 or img_size=[640, 320]
     n_p = sum(x.numel() for x in model.parameters())  # number parameters
@@ -266,8 +279,15 @@ def scale_img(img, ratio=1.0, same_shape=False, gs=32):  # img(16,3,256,416)
         h, w = (math.ceil(x * ratio / gs) * gs for x in (h, w))
     return F.pad(img, [0, w - s[1], 0, h - s[0]], value=0.447)  # value = imagenet mean
 
-
+# 用于模型复制
 def copy_attr(a, b, include=(), exclude=()):
+    """在ModelEMA函数和yolo.py中Model类的autoshape函数中调用
+    复制b的属性(这个属性必须在include中而不在exclude中)给a
+    :params a: 对象a(待赋值)
+    :params b: 对象b(赋值)
+    :params include: 可以赋值的属性
+    :params exclude: 不能赋值的属性
+    """
     # Copy attributes from b to a, options to only include [...] and to exclude [...]
     for k, v in b.__dict__.items():
         if (len(include) and k not in include) or k.startswith('_') or k in exclude:

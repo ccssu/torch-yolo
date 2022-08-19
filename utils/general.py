@@ -304,6 +304,11 @@ def check_online():
 
 def git_describe(path=ROOT):  # path must be a directory
     # Return human-readable git description, i.e. v5.0-5-g3e25f1e https://git-scm.com/docs/git-describe
+    """用在select_device
+    用于返回path文件可读的git描述  return human-readable git description  i.e. v5.0-5-g3e25f1e
+    https://git-scm.com/docs/git-describe
+    path: 需要在git中查询（文件描述）的文件名  默认当前文件的父路径
+    """
     try:
         assert (Path(path) / '.git').is_dir()
         return check_output(f'git -C {path} describe --tags --long --always', shell=True).decode()[:-1]
